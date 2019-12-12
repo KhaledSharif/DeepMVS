@@ -1,8 +1,10 @@
-# DeepMVS: Learning Multi-View Stereopsis
+# DeepMVS: Learning Multi-View Stereopsis | Python 3 fork
 
 [![License](https://img.shields.io/badge/License-BSD%202--Clause-orange.svg)](https://opensource.org/licenses/BSD-2-Clause)
 
 **DeepMVS** is a Deep Convolutional Neural Network which learns to estimate pixel-wise disparity maps from a sequence of an arbitrary number of unordered images with the camera poses already known or estimated. 
+
+This repository is a fork of the original DeepMVS repository. It adds support for Python 3 and the latest version of Pytorch and Torchvision.
 
 ![teaser1](img/teaser1.gif)
 ![teaser2](img/teaser2.gif)
@@ -24,11 +26,11 @@ For the paper and other details of DeepMVS or the MYS-Synth Dataset, please see 
 
 ### Requirements
 
-- **python 2.7**
-- **numpy 1.13.1**
-- **pytorch 0.3.0** and **torchvision**: Follow the instructions from [their website](http://pytorch.org/).
-- **opencv 3.1.0**: Run ``conda install -c menpo opencv`` or ``pip install opencv-python``.
-- **imageio 2.2.0** (with freeimage plugin): Run ``conda install -c conda-forge imageio`` or ``pip install imageio``. To install freeimage plugin, run the following Python script once:
+- **python 3.5**
+- **numpy 1.17.1**
+- **pytorch 1.3.1** and **torchvision 0.4.2**: Follow the instructions from [their website](http://pytorch.org/).
+- **opencv 3.4.0**: Run ``conda install -c menpo opencv`` or ``pip install opencv-python``.
+- **imageio 2.6.1** (with freeimage plugin): Run ``conda install -c conda-forge imageio`` or ``pip install imageio``. To install freeimage plugin, run the following Python script once:
     ```python 
     import imageio
     imageio.plugins.freeimage.download()
