@@ -29,7 +29,6 @@ parser.add_argument("--model_path", dest = "model_path", default = (
 	), help = "Path to store models.")
 parser.add_argument("--snapshot_period", dest = "snapshot_period", type = int, default = 10000, help = "Take snapshot every n iterations. (0: no snapshot)")
 parser.add_argument("--retrain", dest = "retrain", action = "store_true", default = False, help = "Retrain the network from scratch.")
-parser.add_argument("--log_file", dest = "log_file", default = None, help = "Path to log file. (Default: sys.stdout)")
 
 args = parser.parse_args()
 
@@ -43,7 +42,6 @@ dataset_path = args.dataset_path
 model_path = args.model_path
 snapshot_period = args.snapshot_period
 retrain = args.retrain
-log_file = args.log_file
 batch_size = 1
 
 # Check if training dataset is downloaded.
@@ -58,7 +56,7 @@ if os.path.exists(dataset_path):
 		])
 	for dataset in DATASET_LIST:
 		if not os.path.exists(os.path.join(dataset_path, dataset)):
-			print >> log_file, "Cannot find dataset '{:}'".format(dataset)
+			print("Cannot find dataset '{:}'".format(dataset))
 			dataset_downloaded = False
 			break
 else:
@@ -67,8 +65,8 @@ else:
 
 # Try downloading training datasets if it has not been done.
 if not dataset_downloaded:
-	print >> log_file, "Training datasets must be downloaded before training DeepMVS."
-	print >> log_file, "Run 'python python/download_training_datasets.py' to download the training datasets."
+	print("Training datasets must be downloaded before training DeepMVS.")
+	print("Run 'python python/download_training_datasets.py' to download the training datasets.")
 	sys.exit()
 
 # Create model directory and log file.
@@ -130,7 +128,7 @@ def train_DeepMVS_PT():
 	data_gt = torch.LongTensor(batch_size, patch_height, patch_width)
 	invalid_mask = torch.ByteTensor(batch_size, patch_height, patch_width)
 	thread_idx = 0
-	print >> log_file, "Start training DeepMVS_PT from iteration {:d}.".format(iteration_start)
+	print("Start training DeepMVS_PT from iteration {:d}.".format(iteration_start))
 	for iteration_idx in range(iteration_start, iteration_stop):
 		# Load a plane-sweep volume.
 		while not shared_datas[thread_idx]["ready_e"].wait(1e-3):
@@ -168,7 +166,7 @@ def train_DeepMVS_PT():
 				torch.save(model.state_dict(), os.path.join(model_path, "DeepMVS_PT_snapshot_{:d}.model".format(iteration_idx + 1)))
 				torch.save(optimizer.state_dict(), os.path.join(model_path, "DeepMVS_PT_snapshot_{:d}.optimizer".format(iteration_idx + 1)))
 		# Print loss to log file.
-		print >> log_file, "Iter {:d}: loss = {:.6e}".format(iteration_idx, loss.data[0])
+		print("Iter {:d}: loss = {:.6e}".format(iteration_idx, loss.data[0]))
 		log_file.flush()
 	# Save final trained model.
 	torch.save(model.state_dict(), os.path.join(model_path, "DeepMVS_PT_final.model"))
@@ -211,7 +209,7 @@ def train_DeepMVS():
 	data_gt = torch.LongTensor(batch_size, patch_height, patch_width)
 	invalid_mask = torch.ByteTensor(batch_size, patch_height, patch_width)
 	thread_idx = 0
-	print >> log_file, "Start training DeepMVS from iteration {:d}.".format(iteration_start)
+	print("Start training DeepMVS from iteration {:d}.".format(iteration_start))
 	for iteration_idx in range(iteration_start, iteration_stop):
 		# Load a plane-sweep volume.
 		while not shared_datas[thread_idx]["ready_e"].wait(1e-3):
@@ -251,16 +249,16 @@ def train_DeepMVS():
 		feature_input_1x = Variable(VGG_temp_var.data[... , target_y:target_y + patch_height, target_x:target_x + patch_width].clone() * VGG_scaling_factor, requires_grad = True)
 		for i in range(4, 9): # conv_2_2
 			VGG_temp_var = VGG_model.features[i].forward(VGG_temp_var)
-		feature_input_2x = Variable(VGG_temp_var.data[... , target_y / 2:target_y / 2 + patch_height / 2, target_x / 2:target_x / 2 + patch_width / 2].clone() * VGG_scaling_factor, requires_grad = True)
+		feature_input_2x = Variable(VGG_temp_var.data[... , target_y // 2:target_y // 2 + patch_height // 2, target_x // 2:target_x // 2 + patch_width // 2].clone() * VGG_scaling_factor, requires_grad = True)
 		for i in range(9, 14): # conv_3_2
 			VGG_temp_var = VGG_model.features[i].forward(VGG_temp_var)
-		feature_input_4x = Variable(VGG_temp_var.data[... , target_y / 4:target_y / 4 + patch_height / 4, target_x / 4:target_x / 4 + patch_width / 4].clone() * VGG_scaling_factor, requires_grad = True)
+		feature_input_4x = Variable(VGG_temp_var.data[... , target_y // 4:target_y // 4 + patch_height // 4, target_x // 4:target_x // 4 + patch_width // 4].clone() * VGG_scaling_factor, requires_grad = True)
 		for i in range(14, 23): # conv_4_2
 			VGG_temp_var = VGG_model.features[i].forward(VGG_temp_var)
-		feature_input_8x = Variable(VGG_temp_var.data[... , target_y / 8:target_y / 8 + patch_height / 8, target_x / 8:target_x / 8 + patch_width / 8].clone() * VGG_scaling_factor, requires_grad = True)
+		feature_input_8x = Variable(VGG_temp_var.data[... , target_y // 8:target_y // 8 + patch_height // 8, target_x // 8:target_x // 8 + patch_width // 8].clone() * VGG_scaling_factor, requires_grad = True)
 		for i in range(23, 32): # conv_5_2
 			VGG_temp_var = VGG_model.features[i].forward(VGG_temp_var)
-		feature_input_16x = Variable(VGG_temp_var.data[... , target_y / 16:target_y / 16 + patch_height / 16, target_x / 16:target_x / 16 + patch_width / 16].clone() * VGG_scaling_factor, requires_grad = True)
+		feature_input_16x = Variable(VGG_temp_var.data[... , target_y // 16:target_y // 16 + patch_height // 16, target_x // 16:target_x // 16 + patch_width // 16].clone() * VGG_scaling_factor, requires_grad = True)
 		del VGG_temp_var
 		# Update parameters.
 		predict = model.forward(data_in_var, [feature_input_1x, feature_input_2x, feature_input_4x, feature_input_8x, feature_input_16x])
@@ -274,7 +272,7 @@ def train_DeepMVS():
 				torch.save(model.state_dict(), os.path.join(model_path, "DeepMVS_snapshot_{:d}.model".format(iteration_idx + 1)))
 				torch.save(optimizer.state_dict(), os.path.join(model_path, "DeepMVS_snapshot_{:d}.optimizer".format(iteration_idx + 1)))
 		# Print loss to log file.
-		print >> log_file, "Iter {:d}: loss = {:.6e}".format(iteration_idx, loss.data[0])
+		print("Iter {:d}: loss = {:.6e}".format(iteration_idx, loss.data[0]))
 		log_file.flush()
 	# Save final trained model.
 	torch.save(model.state_dict(), os.path.join(model_path, "DeepMVS_final.model"))
@@ -287,5 +285,5 @@ for i in range(0, num_threads):
 	shared_datas[i]["stop"] = True
 	shared_datas[i]["start_e"].set()
 # Finished.
-print >> log_file, "Finished training DeepMVS."
-print >> log_file, "Trained model can be found at {:}".format(os.path.join(model_path, "DeepMVS_final.model"))
+print("Finished training DeepMVS.")
+print("Trained model can be found at {:}".format(os.path.join(model_path, "DeepMVS_final.model")))

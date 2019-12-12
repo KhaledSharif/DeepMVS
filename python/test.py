@@ -30,12 +30,11 @@ parser.add_argument("--no_gpu", dest = "use_gpu", action = "store_false", defaul
 parser.add_argument("--image_path", dest = "image_path", help = "Path to the images.", required = True)
 parser.add_argument("--sparse_path", dest = "sparse_path", help = "Path to the sparse reconstruction.", required = True)
 parser.add_argument("--output_path", dest = "output_path", help = "Path to store the results.", required = True)
-parser.add_argument("--load_bin", dest = "load_bin", type = bool, default = False, help = "Set if you want to load COLMAP .bin files")
+parser.add_argument("--load_bin", dest = "load_bin", type = bool, default = True, help = "Set if you want to load COLMAP .bin files")
 parser.add_argument("--model_path", dest = "model_path", help = "Path to the trained model.", default = (
 		os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "model", "DeepMVS_final.model")
 	))
 parser.add_argument("--overwrite", dest = "overwrite", action = "store_true", default = False, help = "Overwrite existing results.")
-parser.add_argument("--log_file", dest = "log_file", default = None, help = "Path to log file. (Default: sys.stdout)")
 
 args = parser.parse_args()
 
@@ -53,7 +52,6 @@ sparse_path = args.sparse_path
 output_path = args.output_path
 model_path = args.model_path
 overwrite = args.overwrite
-log_file = args.log_file
 batch_size = 1
 
 if args.load_bin:
@@ -71,11 +69,6 @@ for row in range(0, num_depths):
 	for col in range(0, num_depths):
 		compat[row, col] = (row - col) ** 2 / sigma_d ** 2 / 2
 
-# Create log file and output directory if needed.
-if log_file is None:
-	log_file = sys.stdout
-else:
-	log_file = open(log_file, "w")
 if not os.path.exists(output_path):
 	os.makedirs(output_path)
 
@@ -84,19 +77,24 @@ if not os.path.exists(model_path):
 	raise ValueError("Cannot find the trained model. Please download it first or specify the path to the model.")
 
 # Load trained model.
-print >> log_file, "Loading the trained model..."
-log_file.flush()
+print("Loading the trained model...")
+
 model = DeepMVS(num_depths, use_gpu)
-model.load_state_dict(torch.load(os.path.join(model_path)))
-print >> log_file, "Successfully loaded the trained model."
-log_file.flush()
+
+if use_gpu:
+	model.load_state_dict(torch.load(os.path.join(model_path)))
+else:
+	model.load_state_dict(torch.load(os.path.join(model_path), map_location=torch.device('cpu')))
+
+print("Successfully loaded the trained model.")
+
 
 # Load COLMAP sparse model.
-print >> log_file, "Loading the sparse model..."
-log_file.flush()
+print("Loading the sparse model...")
+
 sparse_model = ColmapSparse(sparse_path, image_path, image_width, image_height)
-print >> log_file, "Successfully loaded the sparse model."
-log_file.flush()
+print("Successfully loaded the sparse model.")
+
 
 # Launch plane-sweep volume generating thread.
 shared_data = ({
@@ -113,26 +111,26 @@ worker_thread = threading.Thread(name = "generate_volume", target = generate_vol
 worker_thread.start()
 
 # Prepare VGG model and normalizer.
-print >> log_file, "Creating VGG model..."
-log_file.flush()
+print("Creating VGG model...")
+
 if use_gpu:
 	VGG_model = vision.models.vgg19(pretrained = True).cuda()
 else:
 	VGG_model = vision.models.vgg19(pretrained = True)
 VGG_normalize = vision.transforms.Normalize(mean = [0.485, 0.456, 0.406], std = [0.229, 0.224, 0.225])
-print >> log_file, "Successfully created VGG model."
-log_file.flush()
+print("Successfully created VGG model.")
+
 
 # Loop through all images.
 for (ref_image_idx, ref_image) in enumerate(sparse_model.image_list.images):
 	# Check if output already exists.
 	if not overwrite and os.path.exists(os.path.join(output_path, "{:}.output.npy".format(ref_image.filename))):
-		print >> log_file, "Skipped {:} since the output already exists.".format(ref_image.filename)
-		log_file.flush()
+		print("Skipped {:} since the output already exists.".format(ref_image.filename))
+		
 		continue
 	# Start generating plane-sweep volume of the first patch.
-	print >> log_file, "Start working on image {:d}/{:d}.".format(ref_image_idx, sparse_model.image_list.length)
-	log_file.flush()
+	print("Start working on image {:d}/{:d}.".format(ref_image_idx, sparse_model.image_list.length))
+	
 	shared_data["image_idx"] = ref_image_idx
 	shared_data["target_x"] = 0
 	shared_data["target_y"] = 0
@@ -140,11 +138,12 @@ for (ref_image_idx, ref_image) in enumerate(sparse_model.image_list.images):
 	shared_data["start_e"].set()
 	# Generate VGG features.
 	ref_camera = sparse_model.camera_list.get_by_id(ref_image.camera_id)
-	image_width = ref_camera.width
-	image_height = ref_camera.height
+	image_width = int(ref_camera.width)
+	image_height = int(ref_camera.height)
 	shared_data["ready_e"].wait()
 	ref_img_full = shared_data["ref_img_full"]
-	VGG_tensor = Variable(VGG_normalize(torch.FloatTensor(ref_img_full).permute(2, 0, 1)).unsqueeze(0), volatile = True)
+	with torch.no_grad():
+		VGG_tensor = Variable(VGG_normalize(torch.FloatTensor(ref_img_full).permute(2, 0, 1)).unsqueeze(0))
 	if use_gpu:
 		VGG_tensor = VGG_tensor.cuda()
 	VGG_scaling_factor = 0.01
@@ -183,12 +182,12 @@ for (ref_image_idx, ref_image) in enumerate(sparse_model.image_list.images):
 	predict_raw = torch.zeros(num_depths, image_height, image_width)
 	border_x = (patch_width - stride_width) / 2
 	border_y = (patch_height - stride_height) / 2
-	col_total = (image_width - 2 * border_x - 1) / stride_width + 1
-	row_total = (image_height - 2 * border_y - 1) / stride_height + 1
+	col_total = int((image_width - 2 * border_x - 1) / stride_width + 1)
+	row_total = int((image_height - 2 * border_y - 1) / stride_height + 1)
 	for row_idx in range(0, row_total):
 		for col_idx in range(0, col_total):
-			print >> log_file, "Working on patch at row = {:d}/{:d} col = {:d}/{:d}".format(row_idx, row_total, col_idx, col_total)
-			log_file.flush()
+			print("Working on patch at row = {:d}/{:d} col = {:d}/{:d}".format(row_idx, row_total, col_idx, col_total))
+			
 			# Compute patch location for this patch and next patch.
 			if col_idx != col_total - 1:
 				start_x = col_idx * stride_width
@@ -222,29 +221,36 @@ for (ref_image_idx, ref_image) in enumerate(sparse_model.image_list.images):
 			data_in_tensor = torch.FloatTensor(batch_size, 1, num_depths, 2, 3, patch_height, patch_width)
 			ref_img_tensor = torch.FloatTensor(ref_img).permute(2, 0, 1).unsqueeze(0)
 			data_in_tensor[0, 0, :, 0, ...] = ref_img_tensor.expand(num_depths, -1, -1, -1)
-			feature_input_1x = Variable(feature_input_1x_whole[... , start_y:start_y + patch_height, start_x:start_x + patch_width], volatile = True)
-			feature_input_2x = Variable(feature_input_2x_whole[... , start_y / 2:start_y / 2 + patch_height / 2, start_x / 2:start_x / 2 + patch_width / 2], volatile = True)
-			feature_input_4x = Variable(feature_input_4x_whole[... , start_y / 4:start_y / 4 + patch_height / 4, start_x / 4:start_x / 4 + patch_width / 4], volatile = True)
-			feature_input_8x = Variable(feature_input_8x_whole[... , start_y / 8:start_y / 8 + patch_height / 8, start_x / 8:start_x / 8 + patch_width / 8], volatile = True)
-			feature_input_16x = Variable(feature_input_16x_whole[... , start_y / 16:start_y / 16 + patch_height / 16, start_x / 16:start_x / 16 + patch_width / 16], volatile = True)
+
+			with torch.no_grad():
+				feature_input_1x = Variable(feature_input_1x_whole[... , start_y:start_y + patch_height, start_x:start_x + patch_width])
+				feature_input_2x = Variable(feature_input_2x_whole[... , start_y // 2:start_y // 2 + patch_height // 2, start_x // 2:start_x // 2 + patch_width // 2])
+				feature_input_4x = Variable(feature_input_4x_whole[... , start_y // 4:start_y // 4 + patch_height // 4, start_x // 4:start_x // 4 + patch_width // 4])
+				feature_input_8x = Variable(feature_input_8x_whole[... , start_y // 8:start_y // 8 + patch_height // 8, start_x // 8:start_x // 8 + patch_width // 8])
+				feature_input_16x = Variable(feature_input_16x_whole[... , start_y // 16:start_y // 16 + patch_height // 16, start_x // 16:start_x // 16 + patch_width // 16])
+			
 			if use_gpu:
 				feature_input_1x = feature_input_1x.cuda()
 				feature_input_2x = feature_input_2x.cuda()
 				feature_input_4x = feature_input_4x.cuda()
 				feature_input_8x = feature_input_8x.cuda()
 				feature_input_16x = feature_input_16x.cuda()
+			
 			# Loop through all neighbor images.
 			for neighbor_idx in range(0, num_neighbors):
 				data_in_tensor[0, 0, :, 1, ...] = torch.FloatTensor(np.moveaxis(sweep_volume[neighbor_idx, ...], -1, -3))
-				data_in = Variable(data_in_tensor, volatile = True)
+				with torch.no_grad():
+					data_in = Variable(data_in_tensor)
 				if use_gpu:
 					data_in = data_in.cuda()
 				if neighbor_idx == 0:
 					cost_volume = model.forward_feature(data_in, [feature_input_1x, feature_input_2x, feature_input_4x, feature_input_8x, feature_input_16x]).data[...]
 				else:
 					cost_volume = torch.max(cost_volume, model.forward_feature(data_in, [feature_input_1x, feature_input_2x, feature_input_4x, feature_input_8x, feature_input_16x]).data[...])
+			
 			# Make final prediction.
-			predict = model.forward_predict(Variable(cost_volume[:, 0, ...], volatile = True))
+			with torch.no_grad():
+				predict = model.forward_predict(Variable(cost_volume[:, 0, ...]))
 			# Compute copy range.
 			if col_idx == 0:
 				copy_x_start = 0
@@ -264,12 +270,19 @@ for (ref_image_idx, ref_image) in enumerate(sparse_model.image_list.images):
 			else:
 				copy_y_start = border_y + row_idx * stride_height
 				copy_y_end = copy_y_start + stride_height
-			# Copy the prediction to buffer.
+			
+			start_x, start_y = int(start_x), int(start_y)
+			copy_x_start, copy_x_end = int(copy_x_start), int(copy_x_end)
+			copy_y_start, copy_y_end = int(copy_y_start), int(copy_y_end)
+
 			predict_raw[..., copy_y_start:copy_y_end, copy_x_start:copy_x_end] = predict.data[0, :, copy_y_start - start_y:copy_y_end - start_y, copy_x_start - start_x:copy_x_end - start_x]
-	# Pass through DenseCRF.
-	print >> log_file, "Running DenseCRF..."
-	log_file.flush()
-	unary_energy = F.log_softmax(Variable(predict_raw, volatile = True), dim = 0).data.numpy()
+	
+
+	print("Running DenseCRF...")
+	
+	with torch.no_grad():
+		unary_energy = F.log_softmax(Variable(predict_raw), dim = 0).data.numpy()
+	
 	crf = dcrf.DenseCRF2D(image_width, image_height, num_depths)
 	crf.setUnaryEnergy(-unary_energy.reshape(num_depths, image_height * image_width))
 	ref_img_full = (ref_img_full * 255.0).astype(np.uint8)
@@ -277,19 +290,23 @@ for (ref_image_idx, ref_image) in enumerate(sparse_model.image_list.images):
 	new_raw = crf.inference(iteration_num)
 	new_raw = np.array(new_raw).reshape(num_depths, image_height, image_width)
 	new_predict = np.argmax(new_raw, 0).astype(np.float32) / (num_depths - 1) * ref_image.estimated_max_disparity
+	
 	# Store the results.
 	output_dir = os.path.dirname(os.path.join(output_path, ref_image.filename))
+	
 	if not os.path.exists(output_dir):
 		os.makedirs(output_dir)
+	
 	np.save(os.path.join(output_path, "{:}.output.npy".format(ref_image.filename)), new_predict)
 	imageio.imwrite(os.path.join(output_path, "{:}.output.png".format(ref_image.filename)), (new_predict / ref_image.estimated_max_disparity).clip(0.0, 1.0))
-	print >> log_file, "Result has been saved to {:}.".format(os.path.join(output_path, "{:}.output.npy".format(ref_image.filename)))
-	log_file.flush()
+	
+	print("Result has been saved to {:}.".format(os.path.join(output_path, "{:}.output.npy".format(ref_image.filename))))
+	
 
 # Terminate worker threads.
 shared_data["stop"] = True
 shared_data["start_e"].set()
 
 # Finished.
-print >> log_file, "Finished running DeepMVS."
-print >> log_file, "Results can be found in {:}".format(output_path)
+print("Finished running DeepMVS.")
+print("Results can be found in {:}".format(output_path))

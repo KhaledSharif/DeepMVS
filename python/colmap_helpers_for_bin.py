@@ -200,7 +200,9 @@ class ColmapSparse:
 
 		for image_idx in range(self.image_list.length):
 			camera = self.camera_list.get_by_id(self.image_list.images[image_idx].camera_id)
-			self.image_list.images[image_idx].rgb = cv2.resize(self.image_list.images[image_idx].rgb, (camera.width, camera.height), interpolation = cv2.INTER_AREA)
+			rgb_image = self.image_list.images[image_idx].rgb
+			resized_image = cv2.resize(rgb_image, (int(camera.width), int(camera.height)), interpolation = cv2.INTER_AREA)
+			self.image_list.images[image_idx].rgb = resized_image
 			for point_idx in range(self.image_list.images[image_idx].point_list.length):
 				self.image_list.images[image_idx].point_list.points[point_idx].coord[0] *= camera.width_ratio
 				self.image_list.images[image_idx].point_list.points[point_idx].coord[1] *= camera.height_ratio
